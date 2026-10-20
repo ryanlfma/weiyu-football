@@ -373,6 +373,7 @@ const I18N = {
     'hero.title':'0.0 足球赛', 'hero.cta':'⚽ 进入对阵图',
     'cd.d':'天', 'cd.h':'时', 'cd.m':'分', 'cd.s':'秒',
     'cd.label':'倒计时 · 距下一场比赛还有',
+    'cd.pending':'下一场比赛日期待定',
     'bracket.h2':'对阵图 & 比分',
     'bracket.sub':'半决赛胜者会师决赛，负者进入季军战（三四名决赛）。',
     'bracket.team':'球队', 'bracket.score':'比分',
@@ -399,6 +400,7 @@ const I18N = {
     'hero.title':'0.0 Football', 'hero.cta':'⚽ View Bracket',
     'cd.d':'Days', 'cd.h':'Hrs', 'cd.m':'Min', 'cd.s':'Sec',
     'cd.label':'Countdown · Time until next match',
+    'cd.pending':'Next match date TBD',
     'bracket.h2':'Bracket & Scores',
     'bracket.sub':'Semi-final winners meet in the Final; the losers play the Third-place Match.',
     'bracket.team':'Team', 'bracket.score':'Score',
@@ -433,7 +435,8 @@ const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','
 const tTeam = n => LANG==='zh' ? n : (TEAM_EN[n]||n);
 const tZone = z => LANG==='zh' ? z : (ZONE_EN[z]||z);
 const tSlot = s => LANG==='zh' ? s : (SLOT_EN[s]||s);
-const tDate = o => LANG==='zh' ? o.d : (MON[o.m-1]+' '+o.day);
+const tDate = o => !o.m || !o.day ? 'TBD' :
+  (LANG==='zh' ? `${TOURNAMENT_YEAR}年${o.m}月${o.day}日` : `${MON[o.m-1]} ${o.day}, ${TOURNAMENT_YEAR}`);
 
 /* ===== 队伍配色（仅用于对阵图头像色块 / 色点） ===== */
 const TEAMS = {
@@ -444,12 +447,13 @@ const TEAMS = {
 };
 /* ===== 赛制数据（比分只读，如需公布实际结果可在此修改 sa / sb） =====
    4 队单场淘汰：两场半决赛 -> 负者打季军战，胜者打决赛 */
+const TOURNAMENT_YEAR = 2026;
 const SFS = [
-  {zone:'上半区', a:'高二年级', b:'高一年级', d:'10月8日',  m:10, day:8,  sa:0, sb:0},
-  {zone:'下半区', a:'高三年级', b:'创新班',   d:'10月12日', m:10, day:12, sa:0, sb:0}
+  {zone:'上半区', a:'高二年级', b:'高一年级', m:10, day:26, sa:0, sb:0},
+  {zone:'下半区', a:'高三年级', b:'创新班',   m:10, day:29, sa:0, sb:0}
 ];
-const STAGES = {fin:{icon:'🏆', title:'决赛',   a:'上半区胜者', b:'下半区胜者', sa:0, sb:0, d:'10月19日', m:10, day:19},
-                thi:{icon:'🥉', title:'季军战', a:'上半区负者', b:'下半区负者', sa:0, sb:0, d:'10月15日', m:10, day:15}};
+const STAGES = {fin:{icon:'🏆', title:'决赛',   a:'上半区胜者', b:'下半区胜者', sa:0, sb:0, m:null, day:null},
+                thi:{icon:'🥉', title:'季军战', a:'上半区负者', b:'下半区负者', sa:0, sb:0, m:null, day:null}};
 
 const winnerOf = sf => sf.sa>sf.sb ? sf.a : (sf.sb>sf.sa ? sf.b : null);
 const loserOf  = sf => { const w=winnerOf(sf); return w ? (w===sf.a?sf.b:sf.a) : null; };
@@ -539,7 +543,7 @@ function applyLang(){
   document.querySelectorAll('[data-i18n-html]').forEach(el=>{ el.innerHTML = tr(el.getAttribute('data-i18n-html')); });
   document.getElementById('bracketInner').innerHTML = bracketHTML();
   renderHeroTags();
-  document.getElementById('cdLab').textContent = tr('cd.label');
+  updateCountdown();
   const b=document.getElementById('langBtn');
   b.textContent = LANG==='zh' ? 'EN' : '中文';
   b.setAttribute('aria-label', LANG==='zh' ? 'Switch to English' : '切换为中文');
@@ -553,23 +557,27 @@ document.getElementById('langBtn').addEventListener('click', ()=>{
 });
 applyLang();
 
-/* ===== 倒计时（距最近一场比赛） ===== */
-(function(){
-  const now=new Date(); let target=null; const cands=[];
-  SFS.forEach(sf=>cands.push(new Date(now.getFullYear(),sf.m-1,sf.day,17,0,0)));
-  Object.keys(STAGES).forEach(k=>{const st=STAGES[k]; cands.push(new Date(now.getFullYear(),st.m-1,st.day,17,0,0));});
-  cands.forEach(d=>{ if(d>now && (!target||d<target)) target=d; });
-  if(!target){ cands.forEach(d=>{ const y=new Date(now.getFullYear()+1,d.getMonth(),d.getDate(),17,0,0); if(!target||y<target) target=y; }); }
+/* ===== 倒计时（固定本届年份；沿用上海时间 17:00，忽略 TBD 日期） ===== */
+function nextMatchDate(now){
   const pad=n=>String(n).padStart(2,'0');
-  (function tick(){
-    let ms=target-new Date(); if(ms<0)ms=0;
-    cdD.textContent=pad(Math.floor(ms/864e5));
-    cdH.textContent=pad(Math.floor(ms%864e5/36e5));
-    cdM.textContent=pad(Math.floor(ms%36e5/6e4));
-    cdS.textContent=pad(Math.floor(ms%6e4/1000));
-    setTimeout(tick,1000);
-  })();
-})();
+  const dates=[...SFS,...Object.values(STAGES)]
+    .filter(match=>match.m && match.day)
+    .map(match=>new Date(`${TOURNAMENT_YEAR}-${pad(match.m)}-${pad(match.day)}T17:00:00+08:00`))
+    .filter(date=>date>now)
+    .sort((a,b)=>a-b);
+  return dates[0] || null;
+}
+function updateCountdown(now=new Date()){
+  const target=nextMatchDate(now);
+  document.getElementById('cdLab').textContent=tr(target ? 'cd.label' : 'cd.pending');
+  const ms=target ? target-now : 0;
+  const values=[Math.floor(ms/864e5),Math.floor(ms%864e5/36e5),
+    Math.floor(ms%36e5/6e4),Math.floor(ms%6e4/1000)];
+  ['cdD','cdH','cdM','cdS'].forEach((id,i)=>{
+    document.getElementById(id).textContent=target ? String(values[i]).padStart(2,'0') : '--';
+  });
+}
+setInterval(updateCountdown,1000);
 
 /* ===== 对阵图适配宽度 ===== */
 function fitBracket(){
